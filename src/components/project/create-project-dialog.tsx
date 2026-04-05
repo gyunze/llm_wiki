@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { FolderOpen } from "lucide-react"
-import { createProject } from "@/commands/fs"
+import { createProject, writeFile, createDirectory } from "@/commands/fs"
+import { getTemplate } from "@/lib/templates"
+import { TemplatePicker } from "@/components/project/template-picker"
 import type { WikiProject } from "@/types/wiki"
 
 interface CreateProjectDialogProps {
@@ -19,6 +21,7 @@ interface CreateProjectDialogProps {
 export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: CreateProjectDialogProps) {
   const [name, setName] = useState("")
   const [path, setPath] = useState("")
+  const [selectedTemplate, setSelectedTemplate] = useState("general")
   const [error, setError] = useState("")
   const [creating, setCreating] = useState(false)
 
@@ -42,10 +45,19 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
     setError("")
     try {
       const project = await createProject(name.trim(), path.trim())
+
+      const template = getTemplate(selectedTemplate)
+      await writeFile(`${project.path}/schema.md`, template.schema)
+      await writeFile(`${project.path}/purpose.md`, template.purpose)
+      for (const dir of template.extraDirs) {
+        await createDirectory(`${project.path}/${dir}`)
+      }
+
       onCreated(project)
       onOpenChange(false)
       setName("")
       setPath("")
+      setSelectedTemplate("general")
     } catch (err) {
       setError(String(err))
     } finally {
@@ -55,7 +67,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Create New Wiki Project</DialogTitle>
         </DialogHeader>
@@ -63,6 +75,10 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
           <div className="flex flex-col gap-2">
             <Label htmlFor="name">Project Name</Label>
             <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="my-research-wiki" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Template</Label>
+            <TemplatePicker selected={selectedTemplate} onSelect={setSelectedTemplate} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="path">Parent Directory</Label>
