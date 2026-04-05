@@ -113,6 +113,7 @@ export async function autoIngest(
     try {
       const tree = await listDirectory(projectPath)
       useWikiStore.getState().setFileTree(tree)
+      useWikiStore.getState().bumpDataVersion()
     } catch {
       // ignore
     }

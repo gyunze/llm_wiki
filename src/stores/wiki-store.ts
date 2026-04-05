@@ -17,6 +17,7 @@ interface WikiState {
   chatExpanded: boolean
   activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "settings"
   llmConfig: LlmConfig
+  dataVersion: number
 
   setProject: (project: WikiProject | null) => void
   setFileTree: (tree: FileNode[]) => void
@@ -25,6 +26,7 @@ interface WikiState {
   setChatExpanded: (expanded: boolean) => void
   setActiveView: (view: WikiState["activeView"]) => void
   setLlmConfig: (config: LlmConfig) => void
+  bumpDataVersion: () => void
 }
 
 export const useWikiStore = create<WikiState>((set) => ({
@@ -42,6 +44,8 @@ export const useWikiStore = create<WikiState>((set) => ({
     customEndpoint: "",
   },
 
+  dataVersion: 0,
+
   setProject: (project) => set({ project }),
   setFileTree: (fileTree) => set({ fileTree }),
   setSelectedFile: (selectedFile) => set({ selectedFile }),
@@ -49,6 +53,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setChatExpanded: (chatExpanded) => set({ chatExpanded }),
   setActiveView: (activeView) => set({ activeView }),
   setLlmConfig: (llmConfig) => set({ llmConfig }),
+  bumpDataVersion: () => set((state) => ({ dataVersion: state.dataVersion + 1 })),
 }))
 
 export type { WikiState, LlmConfig }

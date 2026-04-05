@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from "react"
+import { useEffect, useCallback, useState, useRef } from "react"
 import Graph from "graphology"
 import { SigmaContainer, useLoadGraph, useRegisterEvents, useSigma } from "@react-sigma/core"
 import "@react-sigma/core/lib/style.css"
@@ -126,6 +126,7 @@ function EventHandler({ onNodeClick }: EventHandlerProps) {
 
 export function GraphView() {
   const project = useWikiStore((s) => s.project)
+  const dataVersion = useWikiStore((s) => s.dataVersion)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileContent = useWikiStore((s) => s.setFileContent)
   const setActiveView = useWikiStore((s) => s.setActiveView)
@@ -134,6 +135,7 @@ export function GraphView() {
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const lastLoadedVersion = useRef(-1)
 
   const loadGraph = useCallback(async () => {
     if (!project) return
@@ -143,6 +145,7 @@ export function GraphView() {
       const result = await buildWikiGraph(project.path)
       setNodes(result.nodes)
       setEdges(result.edges)
+      lastLoadedVersion.current = useWikiStore.getState().dataVersion
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to build graph"
       setError(message)
@@ -151,10 +154,12 @@ export function GraphView() {
     }
   }, [project])
 
-  // Always load fresh data when component mounts (user switches to Graph view)
+  // Load on mount; reload if data changed since last load
   useEffect(() => {
-    loadGraph()
-  }, [loadGraph])
+    if (dataVersion !== lastLoadedVersion.current) {
+      loadGraph()
+    }
+  }, [loadGraph, dataVersion])
 
   const handleNodeClick = useCallback(
     async (nodeId: string) => {
