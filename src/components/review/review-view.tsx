@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useReviewStore, type ReviewItem } from "@/stores/review-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { writeFile, readFile, listDirectory } from "@/commands/fs"
+import { writeFile, readFile, listDirectory, deleteFile } from "@/commands/fs"
 
 const typeConfig: Record<ReviewItem["type"], { icon: typeof AlertTriangle; label: string; color: string }> = {
   contradiction: { icon: AlertTriangle, label: "Contradiction", color: "text-amber-500" },
@@ -83,10 +83,92 @@ export function ReviewView() {
         console.error("Failed to save to wiki from review:", err)
         resolveItem(id, "Save failed")
       }
+    } else if (action.startsWith("open:") && project) {
+      // Open a page for editing
+      const page = action.slice(5)
+      const candidates = [
+        `${project.path}/wiki/${page}`,
+        `${project.path}/wiki/${page}.md`,
+      ]
+      for (const path of candidates) {
+        try {
+          const content = await readFile(path)
+          useWikiStore.getState().setSelectedFile(path)
+          useWikiStore.getState().setFileContent(content)
+          useWikiStore.getState().setActiveView("wiki")
+          break
+        } catch {
+          // try next
+        }
+      }
+      resolveItem(id, action)
+    } else if (action.startsWith("delete:") && project) {
+      // Delete a file
+      const filePath = action.slice(7)
+      try {
+        await deleteFile(filePath)
+        const tree = await listDirectory(project.path)
+        setFileTree(tree)
+        resolveItem(id, "Deleted")
+      } catch (err) {
+        console.error("Failed to delete:", err)
+        resolveItem(id, "Delete failed")
+      }
+    } else if (actionLooksLikeCreate(action) && project) {
+      // Create a wiki page from the review item's content
+      const item = items.find((i) => i.id === id)
+      if (item) {
+        try {
+          const title = item.title.replace(/^(Create|Save|Add)[:\s]*/i, "").trim() || "Untitled"
+          const slug = title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 50)
+          const date = new Date().toISOString().slice(0, 10)
+
+          // Determine page type from review type or action text
+          const pageType = detectPageType(action, item.type)
+          const dir = pageType === "query" ? "queries" : pageType === "entity" ? "entities" : pageType === "concept" ? "concepts" : "queries"
+          const fileName = `${slug}-${date}.md`
+          const filePath = `${project.path}/wiki/${dir}/${fileName}`
+
+          const frontmatter = `---\ntype: ${pageType}\ntitle: "${title.replace(/"/g, '\\"')}"\ncreated: ${date}\ntags: []\nrelated: []\n---\n\n`
+          const body = `# ${title}\n\n${item.description}\n`
+          await writeFile(filePath, frontmatter + body)
+
+          // Update index
+          const indexPath = `${project.path}/wiki/index.md`
+          let indexContent = ""
+          try { indexContent = await readFile(indexPath) } catch { indexContent = "# Wiki Index\n" }
+          const sectionHeader = `## ${dir.charAt(0).toUpperCase() + dir.slice(1)}`
+          const entry = `- [[${dir}/${slug}-${date}|${title}]]`
+          if (indexContent.includes(sectionHeader)) {
+            indexContent = indexContent.replace(new RegExp(`(${sectionHeader}\n)`), `$1${entry}\n`)
+          } else {
+            indexContent = indexContent.trimEnd() + `\n\n${sectionHeader}\n${entry}\n`
+          }
+          await writeFile(indexPath, indexContent)
+
+          // Log
+          const logPath = `${project.path}/wiki/log.md`
+          let logContent = ""
+          try { logContent = await readFile(logPath) } catch { logContent = "# Wiki Log\n" }
+          await writeFile(logPath, logContent.trimEnd() + `\n- ${date}: Created ${pageType} page \`${fileName}\` from review\n`)
+
+          // Refresh
+          const tree = await listDirectory(project.path)
+          setFileTree(tree)
+          useWikiStore.getState().bumpDataVersion()
+
+          resolveItem(id, `Created: wiki/${dir}/${fileName}`)
+        } catch (err) {
+          console.error("Failed to create page from review:", err)
+          resolveItem(id, "Create failed")
+        }
+      } else {
+        resolveItem(id, action)
+      }
     } else {
       resolveItem(id, action)
     }
-  }, [project, resolveItem, setFileTree])
+  }, [project, items, resolveItem, setFileTree])
 
   const pending = items.filter((i) => !i.resolved)
   const resolved = items.filter((i) => i.resolved)
@@ -207,4 +289,28 @@ function ReviewCard({
       )}
     </div>
   )
+}
+
+/** Detect if an action label implies creating a wiki page */
+function actionLooksLikeCreate(action: string): boolean {
+  const lower = action.toLowerCase()
+  return (
+    lower.includes("create") ||
+    lower.includes("add page") ||
+    lower.includes("new page") ||
+    lower.includes("investigate") ||
+    lower.includes("创建") ||
+    lower.includes("新建")
+  )
+}
+
+/** Infer wiki page type from action text and review item type */
+function detectPageType(action: string, reviewType: string): string {
+  const lower = action.toLowerCase()
+  if (lower.includes("query") || lower.includes("question") || lower.includes("investigate")) return "query"
+  if (lower.includes("entity") || lower.includes("实体")) return "entity"
+  if (lower.includes("concept") || lower.includes("概念")) return "concept"
+  if (reviewType === "missing-page") return "concept"
+  if (reviewType === "suggestion") return "query"
+  return "query"
 }
