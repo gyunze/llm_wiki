@@ -168,6 +168,7 @@ export function SourcesView() {
       await loadSources()
       const tree = await listDirectory(project.path)
       setFileTree(tree)
+      useWikiStore.getState().bumpDataVersion()
 
       // Clear selected file if it was the deleted one
       if (selectedFile === node.path || relatedPages.includes(selectedFile ?? "")) {
