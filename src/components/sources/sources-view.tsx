@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
 import { invoke } from "@tauri-apps/api/core"
-import { Plus, FileText, RefreshCw, BookOpen, Trash2 } from "lucide-react"
+import { Plus, FileText, RefreshCw, BookOpen, Trash2, Folder, ChevronRight, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -31,8 +31,9 @@ export function SourcesView() {
     const pp = normalizePath(project.path)
     try {
       const tree = await listDirectory(`${pp}/raw/sources`)
-      const files = flattenFiles(tree)
-      setSources(files)
+      // Filter out hidden files/dirs and cache
+      const filtered = filterTree(tree)
+      setSources(filtered)
     } catch {
       setSources([])
     }
@@ -375,45 +376,20 @@ export function SourcesView() {
           </div>
         ) : (
           <div className="p-2">
-            {sources.map((source) => (
-              <div
-                key={source.path}
-                className="flex w-full items-center gap-1 rounded-md px-1 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-              >
-                <button
-                  onClick={() => handleOpenSource(source)}
-                  className="flex flex-1 items-center gap-2 truncate px-2 py-1 text-left"
-                >
-                  <FileText className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{source.name}</span>
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0"
-                  title={t("sources.ingest")}
-                  disabled={ingestingPath === source.path}
-                  onClick={() => handleIngest(source)}
-                >
-                  <BookOpen className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                  title={t("sources.delete")}
-                  onClick={() => handleDelete(source)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            ))}
+            <SourceTree
+              nodes={sources}
+              onOpen={handleOpenSource}
+              onIngest={handleIngest}
+              onDelete={handleDelete}
+              ingestingPath={ingestingPath}
+              depth={0}
+            />
           </div>
         )}
       </ScrollArea>
 
       <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-        {t("sources.sourceCount", { count: sources.length })}
+        {t("sources.sourceCount", { count: countFiles(sources) })}
       </div>
     </div>
   )
@@ -462,16 +438,132 @@ async function getUniqueDestPath(dir: string, fileName: string): Promise<string>
   return `${dir}/${nameWithoutExt}-${date}-${Date.now()}${ext}`
 }
 
-function flattenFiles(nodes: FileNode[]): FileNode[] {
-  const files: FileNode[] = []
+function filterTree(nodes: FileNode[]): FileNode[] {
+  return nodes
+    .filter((n) => !n.name.startsWith("."))
+    .map((n) => {
+      if (n.is_dir && n.children) {
+        return { ...n, children: filterTree(n.children) }
+      }
+      return n
+    })
+    .filter((n) => !n.is_dir || (n.children && n.children.length > 0))
+}
+
+function countFiles(nodes: FileNode[]): number {
+  let count = 0
   for (const node of nodes) {
     if (node.is_dir && node.children) {
-      files.push(...flattenFiles(node.children))
+      count += countFiles(node.children)
     } else if (!node.is_dir) {
-      files.push(node)
+      count++
     }
   }
-  return files
+  return count
+}
+
+function SourceTree({
+  nodes,
+  onOpen,
+  onIngest,
+  onDelete,
+  ingestingPath,
+  depth,
+}: {
+  nodes: FileNode[]
+  onOpen: (node: FileNode) => void
+  onIngest: (node: FileNode) => void
+  onDelete: (node: FileNode) => void
+  ingestingPath: string | null
+  depth: number
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const toggle = (path: string) => {
+    setCollapsed((prev) => ({ ...prev, [path]: !prev[path] }))
+  }
+
+  // Sort: folders first, then files, alphabetical within each group
+  const sorted = [...nodes].sort((a, b) => {
+    if (a.is_dir && !b.is_dir) return -1
+    if (!a.is_dir && b.is_dir) return 1
+    return a.name.localeCompare(b.name)
+  })
+
+  return (
+    <>
+      {sorted.map((node) => {
+        if (node.is_dir && node.children) {
+          const isCollapsed = collapsed[node.path] ?? false
+          return (
+            <div key={node.path}>
+              <button
+                onClick={() => toggle(node.path)}
+                className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                style={{ paddingLeft: `${depth * 16 + 4}px` }}
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                <span className="truncate font-medium">{node.name}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground/60 shrink-0">
+                  {countFiles(node.children)}
+                </span>
+              </button>
+              {!isCollapsed && (
+                <SourceTree
+                  nodes={node.children}
+                  onOpen={onOpen}
+                  onIngest={onIngest}
+                  onDelete={onDelete}
+                  ingestingPath={ingestingPath}
+                  depth={depth + 1}
+                />
+              )}
+            </div>
+          )
+        }
+
+        return (
+          <div
+            key={node.path}
+            className="flex w-full items-center gap-1 rounded-md px-1 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            style={{ paddingLeft: `${depth * 16 + 4}px` }}
+          >
+            <button
+              onClick={() => onOpen(node)}
+              className="flex flex-1 items-center gap-2 truncate px-2 py-1 text-left"
+            >
+              <FileText className="h-4 w-4 shrink-0" />
+              <span className="truncate">{node.name}</span>
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              title="Ingest"
+              disabled={ingestingPath === node.path}
+              onClick={() => onIngest(node)}
+            >
+              <BookOpen className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+              title="Delete"
+              onClick={() => onDelete(node)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )
+      })}
+    </>
+  )
 }
 
 function flattenMdFiles(nodes: FileNode[]): FileNode[] {
