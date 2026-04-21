@@ -102,14 +102,18 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
           onMouseDown={startDrag("left")}
         />
 
-        {/* Center: Chat or view (sources/settings/review) */}
+        {/* Center: Markdown preview / file view (primary) */}
         <div className="min-w-0 flex-1 overflow-hidden">
           <ErrorBoundary>
-            <ContentArea />
+            {selectedFile ? (
+              <PreviewPanel />
+            ) : (
+              <ContentArea />
+            )}
           </ErrorBoundary>
         </div>
 
-        {/* Right panels */}
+        {/* Right panels: Chat + Research (secondary) */}
         {hasRightPanel && (
           <>
             <div
@@ -121,13 +125,13 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
               style={{ width: rightWidth }}
             >
               <ErrorBoundary>
-                {/* File preview on top (if file selected) */}
+                {/* Chat panel (always visible on right when file selected) */}
                 {selectedFile && (
                   <div className={researchPanelOpen ? "flex-1 overflow-hidden border-b" : "flex-1 overflow-hidden"}>
-                    <PreviewPanel />
+                    <ContentArea />
                   </div>
                 )}
-                {/* Research panel on bottom (if open) */}
+                {/* Research panel (stacked below when open) */}
                 {researchPanelOpen && (
                   <div className={selectedFile ? "h-1/2 shrink-0 overflow-hidden" : "flex-1 overflow-hidden"}>
                     <ResearchPanel />

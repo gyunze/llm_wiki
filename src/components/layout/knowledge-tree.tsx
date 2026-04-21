@@ -12,18 +12,33 @@ interface WikiPageInfo {
   path: string
   title: string
   type: string
+  topic: string
   tags: string[]
   origin?: string
 }
 
-const TYPE_CONFIG: Record<string, { icon: typeof FileText; label: string; color: string; order: number }> = {
-  overview:    { icon: Layout,      label: "Overview",     color: "text-yellow-500", order: 0 },
-  entity:      { icon: Users,       label: "Entities",     color: "text-blue-500",   order: 1 },
-  concept:     { icon: Lightbulb,   label: "Concepts",     color: "text-purple-500", order: 2 },
-  source:      { icon: BookOpen,    label: "Sources",      color: "text-orange-500", order: 3 },
-  synthesis:   { icon: GitMerge,    label: "Synthesis",    color: "text-red-500",    order: 4 },
-  comparison:  { icon: BarChart3,   label: "Comparisons",  color: "text-emerald-500",order: 5 },
-  query:       { icon: HelpCircle,  label: "Queries",      color: "text-green-500",  order: 6 },
+// 5 known audit topics — order matters for display
+const KNOWN_TOPICS = [
+  "关联方关系及其交易的性质",
+  "风险评估程序和相关工作",
+  "识别和评估重大错报风险",
+  "应对评估的重大错报风险",
+  "其他相关审计程序",
+]
+
+const CATEGORY_CONFIG: Record<string, { icon: typeof FileText; label: string; color: string; order: number }> = {
+  "准则":         { icon: BookOpen,     label: "准则",          color: "text-blue-500",    order: 0 },
+  "审计方法论":    { icon: GitMerge,     label: "审计方法论",    color: "text-purple-500",  order: 1 },
+  "指引性文件":    { icon: Lightbulb,    label: "指引性文件",    color: "text-orange-500",  order: 2 },
+  "enablement":   { icon: BarChart3,    label: "Enablement",    color: "text-emerald-500", order: 3 },
+  "faq":          { icon: HelpCircle,   label: "FAQ",           color: "text-green-500",   order: 4 },
+  overview:       { icon: Layout,       label: "Overview",      color: "text-yellow-500",  order: 5 },
+  entity:         { icon: Users,        label: "Entities",      color: "text-blue-400",    order: 6 },
+  concept:        { icon: Lightbulb,    label: "Concepts",      color: "text-purple-400",  order: 7 },
+  source:         { icon: BookOpen,     label: "Sources",       color: "text-orange-400",  order: 8 },
+  synthesis:      { icon: GitMerge,     label: "Synthesis",     color: "text-red-400",     order: 9 },
+  comparison:     { icon: BarChart3,    label: "Comparisons",   color: "text-emerald-400", order: 10 },
+  query:          { icon: HelpCircle,   label: "Queries",       color: "text-green-400",   order: 11 },
 }
 
 const DEFAULT_CONFIG = { icon: FileText, label: "Other", color: "text-muted-foreground", order: 99 }
@@ -34,7 +49,8 @@ export function KnowledgeTree() {
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const fileTree = useWikiStore((s) => s.fileTree)
   const [pages, setPages] = useState<WikiPageInfo[]>([])
-  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(["overview", "entity", "concept", "source"]))
+  const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set(KNOWN_TOPICS.slice(0, 2)))
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(["overview", "source"]))
 
   const loadPages = useCallback(async () => {
     if (!project) return
@@ -45,7 +61,6 @@ export function KnowledgeTree() {
 
       const pageInfos: WikiPageInfo[] = []
       for (const file of mdFiles) {
-        // Skip index.md and log.md
         if (file.name === "index.md" || file.name === "log.md") continue
         try {
           const content = await readFile(file.path)
@@ -56,6 +71,7 @@ export function KnowledgeTree() {
             path: file.path,
             title: file.name.replace(".md", "").replace(/-/g, " "),
             type: "other",
+            topic: "other",
             tags: [],
           })
         }
@@ -67,7 +83,6 @@ export function KnowledgeTree() {
     }
   }, [project])
 
-  // Reload when file tree changes (after ingest writes new pages)
   useEffect(() => {
     loadPages()
   }, [loadPages, fileTree])
@@ -80,26 +95,40 @@ export function KnowledgeTree() {
     )
   }
 
-  // Group pages by type
-  const grouped = new Map<string, WikiPageInfo[]>()
+  // Group: topic → category → pages[]
+  const topicMap = new Map<string, Map<string, WikiPageInfo[]>>()
   for (const page of pages) {
-    const list = grouped.get(page.type) ?? []
+    const t = topicMap.get(page.topic) ?? new Map()
+    const list = t.get(page.type) ?? []
     list.push(page)
-    grouped.set(page.type, list)
+    t.set(page.type, list)
+    topicMap.set(page.topic, t)
   }
 
-  // Sort groups by configured order
-  const sortedGroups = [...grouped.entries()].sort((a, b) => {
-    const orderA = TYPE_CONFIG[a[0]]?.order ?? DEFAULT_CONFIG.order
-    const orderB = TYPE_CONFIG[b[0]]?.order ?? DEFAULT_CONFIG.order
-    return orderA - orderB
+  // Order topics: known topics first (in defined order), then unknown
+  const sortedTopics = [...topicMap.keys()].sort((a, b) => {
+    const ia = KNOWN_TOPICS.indexOf(a)
+    const ib = KNOWN_TOPICS.indexOf(b)
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return a.localeCompare(b)
   })
 
-  function toggleType(type: string) {
-    setExpandedTypes((prev) => {
+  function toggleTopic(topic: string) {
+    setExpandedTopics((prev) => {
       const next = new Set(prev)
-      if (next.has(type)) next.delete(type)
-      else next.add(type)
+      if (next.has(topic)) next.delete(topic)
+      else next.add(topic)
+      return next
+    })
+  }
+
+  function toggleCat(cat: string) {
+    setExpandedCats((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat)
+      else next.add(cat)
       return next
     })
   }
@@ -111,60 +140,92 @@ export function KnowledgeTree() {
           {project.name}
         </div>
 
-        {sortedGroups.length === 0 && (
+        {sortedTopics.length === 0 && (
           <div className="px-2 py-4 text-center text-xs text-muted-foreground">
             No wiki pages yet. Import sources to get started.
           </div>
         )}
 
-        {sortedGroups.map(([type, items]) => {
-          const config = TYPE_CONFIG[type] ?? DEFAULT_CONFIG
-          const Icon = config.icon
-          const isExpanded = expandedTypes.has(type)
+        {sortedTopics.map((topic) => {
+          const catMap = topicMap.get(topic)!
+          const total = [...catMap.values()].reduce((s, v) => s + v.length, 0)
+          const isTopicExpanded = expandedTopics.has(topic)
 
           return (
-            <div key={type} className="mb-1">
+            <div key={topic} className="mb-1">
               <button
-                onClick={() => toggleType(type)}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50"
+                onClick={() => toggleTopic(topic)}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium hover:bg-accent/50"
               >
-                {isExpanded ? (
+                {isTopicExpanded ? (
                   <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 ) : (
                   <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 )}
-                <Icon className={`h-3.5 w-3.5 shrink-0 ${config.color}`} />
-                <span className="flex-1 text-left font-medium">{config.label}</span>
-                <span className="text-xs text-muted-foreground">{items.length}</span>
+                <span className="flex-1 text-left">{topic}</span>
+                <span className="text-xs text-muted-foreground">{total}</span>
               </button>
 
-              {isExpanded && (
+              {isTopicExpanded && (
                 <div className="ml-3">
-                  {items.map((page) => {
-                    const isSelected = selectedFile === page.path
-                    return (
-                      <button
-                        key={page.path}
-                        onClick={() => setSelectedFile(page.path)}
-                        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm ${
-                          isSelected
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-                        }`}
-                        title={page.path}
-                      >
-                        {page.origin === "web-clip" && <Globe className="h-3 w-3 shrink-0 text-blue-400" />}
-                        <span className="truncate">{page.title}</span>
-                      </button>
-                    )
-                  })}
+                  {[...catMap.entries()]
+                    .sort((a, b) => {
+                      const oA = CATEGORY_CONFIG[a[0]]?.order ?? DEFAULT_CONFIG.order
+                      const oB = CATEGORY_CONFIG[b[0]]?.order ?? DEFAULT_CONFIG.order
+                      return oA - oB
+                    })
+                    .map(([cat, items]) => {
+                      const cfg = CATEGORY_CONFIG[cat] ?? DEFAULT_CONFIG
+                      const Icon = cfg.icon
+                      const isCatExpanded = expandedCats.has(cat)
+
+                      return (
+                        <div key={cat} className="mb-0.5">
+                          <button
+                            onClick={() => toggleCat(cat)}
+                            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-accent/50"
+                          >
+                            {isCatExpanded ? (
+                              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            )}
+                            <Icon className={`h-3 w-3 shrink-0 ${cfg.color}`} />
+                            <span className="flex-1 text-left">{cfg.label}</span>
+                            <span className="text-[10px] text-muted-foreground">{items.length}</span>
+                          </button>
+
+                          {isCatExpanded && (
+                            <div className="ml-3">
+                              {items.map((page) => {
+                                const isSelected = selectedFile === page.path
+                                return (
+                                  <button
+                                    key={page.path}
+                                    onClick={() => setSelectedFile(page.path)}
+                                    className={`flex w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-xs ${
+                                      isSelected
+                                        ? "bg-accent text-accent-foreground"
+                                        : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+                                    }`}
+                                    title={page.path}
+                                  >
+                                    {page.origin === "web-clip" && <Globe className="h-2.5 w-2.5 shrink-0 text-blue-400" />}
+                                    <span className="truncate">{page.title}</span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                 </div>
               )}
             </div>
           )
         })}
 
-        {/* Raw sources quick access */}
         <RawSourcesSection />
       </div>
     </ScrollArea>
@@ -229,16 +290,16 @@ function RawSourcesSection() {
 
 function parsePageInfo(path: string, fileName: string, content: string): WikiPageInfo {
   let type = "other"
+  let topic = "other"
   let title = fileName.replace(".md", "").replace(/-/g, " ")
   const tags: string[] = []
   let origin: string | undefined
 
-  // Parse YAML frontmatter
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---/)
   if (fmMatch) {
     const fm = fmMatch[1]
     const typeMatch = fm.match(/^type:\s*(.+)$/m)
-    if (typeMatch) type = typeMatch[1].trim().toLowerCase()
+    if (typeMatch) type = typeMatch[1].trim()
 
     const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m)
     if (titleMatch) title = titleMatch[1].trim()
@@ -252,15 +313,29 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
     if (originMatch) origin = originMatch[1].trim()
   }
 
-  // Fallback: try first heading if no frontmatter title
   if (title === fileName.replace(".md", "").replace(/-/g, " ")) {
     const headingMatch = content.match(/^#\s+(.+)$/m)
     if (headingMatch) title = headingMatch[1].trim()
   }
 
-  // Fallback: infer type from path
+  // Extract topic from path: wiki/{topic}/{category}/{page}.md
+  // Split on "/" and find the known topic at position 1 (index 1 after "wiki")
+  const parts = normalizePath(path).split("/").filter(Boolean)
+  // parts: ["...","wiki","关联方关系及其交易的性质","准则","page.md"]
+  for (let i = 1; i < parts.length - 2; i++) {
+    if (KNOWN_TOPICS.includes(parts[i])) {
+      topic = parts[i]
+      break
+    }
+  }
+
   if (type === "other") {
-    if (path.includes("/entities/")) type = "entity"
+    if (path.includes("/准则/")) type = "准则"
+    else if (path.includes("/审计方法论/")) type = "审计方法论"
+    else if (path.includes("/指引性文件/")) type = "指引性文件"
+    else if (path.includes("/Enablement/")) type = "enablement"
+    else if (path.includes("/FAQ/")) type = "faq"
+    else if (path.includes("/entities/")) type = "entity"
     else if (path.includes("/concepts/")) type = "concept"
     else if (path.includes("/sources/")) type = "source"
     else if (path.includes("/queries/")) type = "query"
@@ -269,7 +344,7 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
     else if (fileName === "overview.md") type = "overview"
   }
 
-  return { path, title, type, tags, origin }
+  return { path, title, type, topic, tags, origin }
 }
 
 function flattenMdFiles(nodes: FileNode[]): FileNode[] {

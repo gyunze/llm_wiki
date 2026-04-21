@@ -300,13 +300,24 @@ async function writeFileBlocks(projectPath: string, text: string): Promise<strin
     //   quotes Russian philosophers) which confuses naive script-based
     //   detection. Keep the check for /concepts/ pages, which should be
     //   authoritative content in the target language.
+    // - New audit framework paths (standards, methodology, guidance,
+    //   enablement, faq) also contain cross-language proper nouns
+    //   (audit standards, company names, regulation codes).
     const isLog =
       relativePath.endsWith("/log.md") || relativePath === "wiki/log.md"
     const isEntityOrSource =
       relativePath.startsWith("wiki/entities/") ||
       relativePath.includes("/entities/") ||
       relativePath.startsWith("wiki/sources/") ||
-      relativePath.includes("/sources/")
+      relativePath.includes("/sources/") ||
+      relativePath.includes("/standards/") ||
+      relativePath.includes("/methodology/") ||
+      relativePath.includes("/guidance/") ||
+      relativePath.includes("/Enablement/") ||
+      relativePath.includes("/FAQ/") ||
+      relativePath.includes("/准则/") ||
+      relativePath.includes("/审计方法论/") ||
+      relativePath.includes("/指引性文件/")
     if (
       targetLang &&
       targetLang !== "auto" &&
@@ -415,17 +426,17 @@ export function buildAnalysisPrompt(purpose: string, index: string, sourceConten
     "",
     "Your analysis should cover:",
     "",
-    "## Key Entities",
-    "List people, organizations, products, datasets, tools mentioned. For each:",
-    "- Name and type",
-    "- Role in the source (central vs. peripheral)",
-    "- Whether it likely already exists in the wiki (check the index)",
+    "## Wiki Architecture — Knowledge Categories",
     "",
-    "## Key Concepts",
-    "List theories, methods, techniques, phenomena. For each:",
-    "- Name and brief definition",
-    "- Why it matters in this source",
-    "- Whether it likely already exists in the wiki",
+    "Classify findings into these five knowledge categories:",
+    "- **准则** (Standards): audit standards, regulations, professional standards, compliance requirements",
+    "- **审计方法论** (Methodology): audit procedures, techniques, risk assessment methods, testing approaches",
+    "- **指引性文件** (Guidance): practical guidance, how-tos, best practices, implementation advice",
+    "- **Enablement**: tools, templates, checklists, training materials, frameworks",
+    "- **FAQ**: common questions, misconceptions, practical challenges and answers",
+    "",
+    "## Key Content by Category",
+    "For each category identified above, list the relevant content from the source and note whether it likely already exists in the wiki.",
     "",
     "## Main Arguments & Findings",
     "- What are the core claims or results?",
@@ -441,7 +452,8 @@ export function buildAnalysisPrompt(purpose: string, index: string, sourceConten
     "- Are there internal tensions or caveats?",
     "",
     "## Recommendations",
-    "- What wiki pages should be created or updated?",
+    "- What wiki pages should be created or updated? Assign each to the appropriate knowledge category.",
+    "- What topic directory should each page live under? Use the wiki purpose/schema to determine topic structure.",
     "- What should be emphasized vs. de-emphasized?",
     "- Any open questions worth flagging for the user?",
     "",
@@ -470,21 +482,49 @@ export function buildGenerationPrompt(schema: string, purpose: string, index: st
     `The original source file is: **${sourceFileName}**`,
     `All wiki pages generated from this source MUST include this filename in their frontmatter \`sources\` field.`,
     "",
+    "## Wiki Architecture — Knowledge Categories",
+    "",
+    "The wiki is structured around FIVE topic directories, each containing the SAME five knowledge categories:",
+    "",
+    "Topic 1: 关联方关系及其交易的性质",
+    "Topic 2: 风险评估程序和相关工作",
+    "Topic 3: 识别和评估重大错报风险",
+    "Topic 4: 应对评估的重大错报风险",
+    "Topic 5: 其他相关审计程序",
+    "",
+    "Each topic directory contains exactly five subdirectories:",
+    "  wiki/{topic}/准则/{page}.md          — audit standards, regulations, professional standards",
+    "  wiki/{topic}/审计方法论/{page}.md       — audit procedures, methodology, techniques",
+    "  wiki/{topic}/指引性文件/{page}.md       — practical guidance documents, how-tos",
+    "  wiki/{topic}/Enablement/{page}.md    — tools, templates, training materials, checklists",
+    "  wiki/{topic}/FAQ/{page}.md           — common questions and answers",
+    "",
+    "CRITICAL: The FIRST level directory is the TOPIC name (e.g., '关联方关系及其交易的性质').",
+    "The SECOND level directory is the knowledge category (e.g., '准则', '审计方法论', etc.).",
+    "WRONG: wiki/准则/关联方关系.md  (category as top level)",
+    "CORRECT: wiki/关联方关系及其交易的性质/准则/关联方关系.md  (topic as top level, category as subdirectory)",
+    "",
+    "Place each page in the topic directory that best matches its content. Use the purpose/schema file for guidance.",
+    "",
     "## What to generate",
     "",
     `1. A source summary page at **wiki/sources/${sourceBaseName}.md** (MUST use this exact path)`,
-    "2. Entity pages in wiki/entities/ for key entities identified in the analysis",
-    "3. Concept pages in wiki/concepts/ for key concepts identified in the analysis",
-    "4. An updated wiki/index.md — add new entries to existing categories, preserve all existing entries",
-    "5. A log entry for wiki/log.md (just the new entry to append, format: ## [YYYY-MM-DD] ingest | Title)",
-    "6. An updated wiki/overview.md — a high-level summary of what the entire wiki covers, updated to reflect the newly ingested source. This should be a comprehensive 2-5 paragraph overview of ALL topics in the wiki, not just the new source.",
+    "2. Topic pages organized under the appropriate topic directory, with pages placed in the correct knowledge category subdirectory:",
+    "   - wiki/关联方关系及其交易的性质/准则/{page}.md",
+    "   - wiki/关联方关系及其交易的性质/审计方法论/{page}.md",
+    "   - wiki/风险评估程序和相关工作/准则/{page}.md",
+    "   - wiki/风险评估程序和相关工作/审计方法论/{page}.md",
+    "   - (and so on for all five topics × five categories)",
+    "3. An updated wiki/index.md — add new entries grouped by topic and category, preserve all existing entries",
+    "4. A log entry for wiki/log.md (just the new entry to append, format: ## [YYYY-MM-DD] ingest | Title)",
+    "5. An updated wiki/overview.md — a high-level summary of what the entire wiki covers, updated to reflect the newly ingested source. This should be a comprehensive 2-5 paragraph overview of ALL topics in the wiki, not just the new source.",
     "",
     "## Frontmatter Rules (CRITICAL)",
     "",
     "Every page MUST have YAML frontmatter with these fields:",
     "```yaml",
     "---",
-    "type: source | entity | concept | comparison | query | synthesis",
+    "type: 准则 | 审计方法论 | 指引性文件 | enablement | faq | source",
     "title: Human-readable title",
     "created: YYYY-MM-DD",
     "updated: YYYY-MM-DD",
